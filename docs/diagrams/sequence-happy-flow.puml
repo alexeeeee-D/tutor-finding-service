@@ -1,21 +1,129 @@
+
 @startuml
-title Подбор репетитора — Happy Flow
+title СМО подбора репетиторов — успешная обработка заявки
 
-participant "Источник заявок" as Source
-participant "Диспетчер" as Dispatcher
-participant "Обработчик" as Moderator
-participant "Ученик" as Student
+autonumber
+hide footbox
+skinparam shadowing false
+skinparam sequence {
+    ArrowColor #34495E
+    LifeLineBorderColor #7F8C8D
+    LifeLineBackgroundColor #F8F9FA
+    ParticipantBorderColor #34495E
+    ParticipantBackgroundColor #EAF2F8
+    ParticipantFontColor #17202A
+    ActorBorderColor #34495E
+    BoxBorderColor #85929E
+    BoxBackgroundColor #F8F9F9
+}
+skinparam responseMessageBelowArrow true
 
-Source -> Dispatcher: Передать новую заявку
+actor "Ученик / родитель" as Student
 
-Dispatcher -> Moderator: Передать заявку на обработку
-activate Moderator
+box "Формирование заявок"
+    participant "Источник заявок" as Source
+end box
 
-Moderator -> Moderator: Проверить требования\nи подобрать репетиторов
-Moderator --> Dispatcher: Вернуть результат подбора
+box "Ядро СМО"
+    participant "Диспетчер" as Dispatcher
+    participant "Кольцевой\nпланировщик" as Scheduler
+    participant "Буфер FIFO" as Buffer
+    participant "Статистика" as Statistics
+end box
 
-deactivate Moderator
+box "Обслуживание"
+    participant "Устройство" as Device
+    participant "Сервис подбора" as Matching
+end box
 
-Dispatcher --> Student: Передать список кандидатов
+== Формирование и регистрация заявки ==
+
+Student -> Source: Отправить параметры подбора
+activate Source
+
+Source -> Source: Сформировать заявку\nи определить время поступления
+note right of Source
+Между поступлениями заявок —
+равномерно распределённые интервалы.
+end note
+
+Source -> Dispatcher: submit(request)
+activate Dispatcher
+
+Dispatcher -> Statistics: registerArrival(request, arrivalTime)
+Statistics --> Dispatcher: Заявка учтена
+
+== Выбор способа обработки ==
+
+Dispatcher -> Scheduler: selectAvailableDevice()
+activate Scheduler
+Scheduler -> Scheduler: Проверить устройства\nпо кольцевому правилу
+Scheduler --> Dispatcher: Результат выбора
+deactivate Scheduler
+
+alt Найдено свободное устройство
+
+    Dispatcher -> Device: assign(request)
+    activate Device
+    Dispatcher -> Statistics: recordServiceStart(request, time)
+
+    Device -> Matching: matchTutors(request)
+    activate Matching
+    Matching -> Matching: Проверить требования\nи подобрать кандидатов
+    Matching --> Device: Результат подбора
+    deactivate Matching
+
+    Device -> Statistics: recordCompletion(request, time)
+    Device --> Student: Передать результат подбора
+    deactivate Device
+
+else Все устройства заняты, буфер имеет место
+
+    Dispatcher -> Buffer: enqueue(request)
+    activate Buffer
+    Buffer -> Buffer: Добавить в конец очереди
+    Buffer --> Dispatcher: Заявка поставлена в очередь
+    deactivate Buffer
+
+    note over Dispatcher, Buffer
+    Заявка ожидает освобождения устройства.
+    Порядок ожидания — FIFO.
+    end note
+
+    ... Освобождение устройства ...
+
+    Device -> Dispatcher: serviceCompleted(device)
+    activate Dispatcher
+
+    Dispatcher -> Buffer: dequeueOldest()
+    activate Buffer
+    Buffer --> Dispatcher: Самая старая ожидающая заявка
+    deactivate Buffer
+
+    Dispatcher -> Scheduler: advanceRingPointer()
+    Scheduler --> Dispatcher: Указатель обновлён
+
+    Dispatcher -> Device: assign(oldestRequest)
+    Dispatcher -> Statistics: recordServiceStart(oldestRequest, time)
+
+    Device -> Matching: matchTutors(oldestRequest)
+    activate Matching
+    Matching --> Device: Результат подбора
+    deactivate Matching
+
+    Device -> Statistics: recordCompletion(oldestRequest, time)
+    Device --> Student: Передать результат подбора
+    deactivate Device
+
+    deactivate Dispatcher
+
+end
+
+Dispatcher -> Statistics: updateSummary()
+Statistics --> Dispatcher: Обновлённые показатели
+
+deactivate Dispatcher
+deactivate Source
 
 @enduml
+
