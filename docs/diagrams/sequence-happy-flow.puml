@@ -1,0 +1,21 @@
+@startuml
+title Подбор репетитора — Happy Flow
+
+participant "Источник заявок" as Source
+participant "Диспетчер" as Dispatcher
+participant "Обработчик" as Moderator
+participant "Ученик" as Student
+
+Source -> Dispatcher: Передать новую заявку
+
+Dispatcher -> Moderator: Передать заявку на обработку
+activate Moderator
+
+Moderator -> Moderator: Проверить требования\nи подобрать репетиторов
+Moderator --> Dispatcher: Вернуть результат подбора
+
+deactivate Moderator
+
+Dispatcher --> Student: Передать список кандидатов
+
+@enduml
